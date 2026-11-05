@@ -4,8 +4,11 @@
 // 1. `PLANEWARD_OPENAPI` (a file path or an http(s) URL)
 // 2. `../../workbench/apps/docs/openapi/v1.yaml` (local Planeward checkout)
 // 3. https://docs.planeward.com/openapi.json
+//
+// `--check` compares against the committed file instead of writing it and
+// exits 1 when they differ, so CI never replaces the types later steps use.
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import openapiTS, { astToString } from "openapi-typescript";
@@ -47,6 +50,17 @@ const formatted = await prettier.format(code, {
   filepath: OUTPUT,
 });
 
-await mkdir(dirname(OUTPUT), { recursive: true });
-await writeFile(OUTPUT, formatted);
-console.log(`Wrote ${OUTPUT}`);
+if (process.argv.includes("--check")) {
+  const current = existsSync(OUTPUT) ? await readFile(OUTPUT, "utf8") : "";
+  if (current !== formatted) {
+    console.error(
+      `${OUTPUT} is out of date with ${source.href}. Run \`pnpm generate\`.`
+    );
+    process.exit(1);
+  }
+  console.log(`${OUTPUT} is up to date.`);
+} else {
+  await mkdir(dirname(OUTPUT), { recursive: true });
+  await writeFile(OUTPUT, formatted);
+  console.log(`Wrote ${OUTPUT}`);
+}

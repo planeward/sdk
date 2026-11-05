@@ -37,6 +37,7 @@
   "scripts": {
     "build": "tsdown",
     "generate": "node scripts/generate.mjs",
+    "generate:check": "node scripts/generate.mjs --check",
     "release": "bumpp --commit \"chore(release): v%s\" --no-push",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
