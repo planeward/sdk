@@ -95,45 +95,6 @@ export type AppViewerTokenClaims = {
   avatar: string | null;
 };
 
-export const APP_WEBHOOK_EVENTS = ["app.installed", "app.uninstalled"] as const;
-
-export type AppWebhookEnvelope = {
-  event: string;
-  data: unknown;
-  timestamp: string;
-  installationId: string;
-  workspaceId: string;
-};
-
-export type CommunityAppMember = {
-  id: string;
-  customerId: string;
-  username: string | null;
-  displayName: string;
-  avatarUrl: string | null;
-  status: "ACTIVE" | "SUSPENDED" | "REVOKED";
-  accessPlans: { id: string; name: string }[];
-  roles: { id: string; name: string }[];
-  /** ISO 8601. */
-  joinedAt: string;
-};
-
-export type CommunityAppMessage = {
-  id: string;
-  channelId: string;
-  body: string;
-  replyToId: string | null;
-  createdAt: string;
-  author: { kind: "app"; installationId: string; name: string };
-};
-
-export type ListResponse<T> = {
-  data: T[];
-  meta: { total: number; limit: number; offset: number };
-};
-
-export type DataResponse<T> = { data: T };
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -197,18 +158,5 @@ export function isAppViewerTokenClaims(
     (value.role === "member" || value.role === "admin") &&
     typeof value.name === "string" &&
     isNullableString(value.avatar)
-  );
-}
-
-export function isAppWebhookEnvelope(
-  value: unknown
-): value is AppWebhookEnvelope {
-  return (
-    isRecord(value) &&
-    typeof value.event === "string" &&
-    "data" in value &&
-    typeof value.timestamp === "string" &&
-    typeof value.installationId === "string" &&
-    typeof value.workspaceId === "string"
   );
 }

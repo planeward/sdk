@@ -6,3 +6,8 @@ overrides:
 
 allowBuilds:
   esbuild: true
+
+# openapi-typescript (`pnpm generate`) asks for TypeScript 5 but runs on 6.
+peerDependencyRules:
+  allowedVersions:
+    openapi-typescript>typescript: "6"

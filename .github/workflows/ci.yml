@@ -31,6 +31,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Fails when src/generated/openapi.ts differs from the hosted spec.
+      # `--check` never writes the file, so later steps keep the committed
+      # types. continue-on-error until docs.planeward.com serves the spec with
+      # the app API v2 endpoints (channels, courses, progress, badges, events,
+      # forms); remove it once that spec is deployed.
+      - name: Check generated OpenAPI types
+        continue-on-error: true
+        env:
+          PLANEWARD_OPENAPI: https://docs.planeward.com/openapi.json
+        run: pnpm generate:check
+
       - name: Build
         run: pnpm build
 
