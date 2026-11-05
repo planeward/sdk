@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@planeward/sdk",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Build apps that run inside Planeward communities: iframe handshake, viewer token verification, webhooks, and a typed API client.",
   "license": "MIT",
   "type": "module",
