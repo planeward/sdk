@@ -59,6 +59,28 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/projects/{projectId}/roles": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectId: components["parameters"]["ProjectId"];
+      };
+      cookie?: never;
+    };
+    /**
+     * List roles that can be assigned in a project
+     * @description Workspace roles that can be task assignees in this project: roles with Manage any project, or Editor or Project manager access to the project. Sorted by rank (highest first), then name. Use `roleId` in `assigneeRoleIds`. Needs `PROJECTS_READ` or `TASKS_READ`.
+     */
+    get: operations["listProjectAssignableRoles"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/projects/{projectId}/tasks": {
     parameters: {
       query?: never;
@@ -71,7 +93,10 @@ export interface paths {
     /** List tasks in a project */
     get: operations["listProjectTasks"];
     put?: never;
-    /** Create a task */
+    /**
+     * Create a task
+     * @description Creating a task directly in a Done status sets `completedAt` and schedules auto-archive. A status at its blocking WIP limit answers 409. A task created with `parentId` also sends a `task.created` webhook.
+     */
     post: operations["createTask"];
     delete?: never;
     options?: never;
@@ -96,7 +121,10 @@ export interface paths {
     delete: operations["deleteTask"];
     options?: never;
     head?: never;
-    /** Update a task */
+    /**
+     * Update a task
+     * @description All fields are applied in one write with one `version` bump. Moving the task to a Done status sets `completedAt` and schedules auto-archive (an archived task then answers 404); moving it out clears `completedAt`. A status change puts the task at the end of the new column. A status at its blocking WIP limit answers 409. Send `expectedVersion` to reject the write with 409 when someone else changed the task first; omit it and the last write wins.
+     */
     patch: operations["updateTask"];
     trace?: never;
   };
@@ -1427,6 +1455,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/community/notifications": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Send a notification to members
+     * @description Requires `COMMUNITY_NOTIFICATIONS_WRITE` and an app caller (`pwa_` secret); workspace API keys get 403. Sends an in-app notification and a push notification to up to 100 members. It never sends email. The title is always the app's name: Planeward sets it, and a `title` in the body is ignored. `href` is a path in the app. Opening the notification opens the app's channel on the community site with the app loaded at that path. Members can turn off an app's notifications. A member who did is still listed in `accepted`, so the app can't tell who muted it. A member gets at most 10 notifications an hour from one app; past that the member is skipped with `over_limit`. Send `key` when you retry: a member the app already sent that `key` in the last 24 hours is listed in `accepted` and not notified again. Without `key`, a retry notifies again. The response is 200 even when every member is skipped.
+     */
+    post: operations["sendCommunityNotifications"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/sites": {
     parameters: {
       query?: never;
@@ -1909,6 +1957,35 @@ export interface components {
       /** Format: date-time */
       awardedAt: string;
     };
+    CommunityNotificationSend: {
+      /** @description Community membership ids. A repeated id is notified once and appears once in the response. */
+      memberIds: string[];
+      /** @description Plain text, shown as written. Markdown and HTML are not rendered. */
+      body: string;
+      /** @description Path in the app with an optional query, such as `/orders/123`. It is resolved against the origin of the app's Experience URL, so `/` is the root of that origin. It can't name a host or scheme, and can't contain a `#` fragment, `\`, spaces, non-ASCII characters or `.` and `..` segments. */
+      href: string;
+      /** @description Makes a retry safe. A member the app already sent this `key` in the last 24 hours is listed in `accepted` and not notified again. */
+      key?: string;
+    };
+    /**
+     * @description `member_not_found`: the id is not a member of this workspace's community. `member_not_active`: the member is suspended or revoked. `channel_not_visible`: the app has no channel `@everyone` can view, so the notification has nowhere to open. `over_limit`: the member already got 10 notifications from this app in the last hour.
+     * @enum {string}
+     */
+    CommunityNotificationSkipReason:
+      | "member_not_found"
+      | "member_not_active"
+      | "channel_not_visible"
+      | "over_limit";
+    CommunityNotificationSkip: {
+      memberId: string;
+      reason: components["schemas"]["CommunityNotificationSkipReason"];
+    };
+    CommunityNotificationSendResult: {
+      /** @description Members the notification was accepted for, in request order. Includes members who turned off the app's notifications. */
+      accepted: string[];
+      /** @description Members who got nothing, each with the reason. */
+      skipped: components["schemas"]["CommunityNotificationSkip"][];
+    };
     /** @description Exactly one of `memberId` or `contactId`. App callers must send `memberId`; a member without a contact gets one created from their customer record. */
     EventRegistrationWrite:
       | {
@@ -1965,7 +2042,7 @@ export interface components {
       workspaceId: string;
       projectId: string;
       title: string;
-      /** @description Derived plain text from descriptionContent. Not written by the in-app editor. */
+      /** @description Plain text derived from descriptionContent on every write. */
       description?: string | null;
       descriptionContent?: components["schemas"]["TaskDescriptionContent"];
       statusId: string;
@@ -1977,8 +2054,12 @@ export interface components {
       startDate?: string | null;
       /** Format: date-time */
       dueDate?: string | null;
-      /** Format: date-time */
+      /**
+       * Format: date-time
+       * @description Set when the task enters a Done status (from the app, REST, MCP or a status-type change) and cleared when it leaves one. Auto-archive is scheduled from this time; archived tasks are no longer returned.
+       */
       completedAt?: string | null;
+      /** @description Increments on every write. Send it back as `expectedVersion` on PATCH to detect concurrent edits. */
       version?: number;
       /** Format: date-time */
       createdAt: string;
@@ -1989,6 +2070,11 @@ export interface components {
         displayName: string;
         image?: string | null;
       }[];
+      /** @description Workspace roles assigned to the task. Everyone who holds the role owns the task. */
+      assigneeRoles?: {
+        roleId: string;
+        name: string;
+      }[];
       label?: components["schemas"]["TaskLabel"] | null;
     };
     TaskLabel: {
@@ -1997,6 +2083,13 @@ export interface components {
       color: string;
       icon?: string | null;
       description?: string | null;
+    };
+    ProjectAssignableRole: {
+      roleId: string;
+      name: string;
+      color: string;
+      /** @description Position in the role hierarchy. Higher is higher. */
+      rank: number;
     };
     ProjectLabel: {
       id: string;
@@ -2025,10 +2118,16 @@ export interface components {
       /** Format: date-time */
       dueDate?: string | null;
       assigneeMembershipIds?: string[];
+      /** @description Workspace role ids from GET /projects/{projectId}/roles. A role must have Manage any project, or Editor or Project manager access to the project; otherwise the request fails with "One or more assignee roles are invalid." On update, the list replaces the current roles only when present. */
+      assigneeRoleIds?: string[];
       /** @description Project label id from GET /projects/{projectId}/labels. A task has at most one label. Null clears the label on update. */
       labelId?: string | null;
       /** @description Makes this task a subtask. The parent must be a top-level task in the same project; subtasks are one level deep, so a task that has subtasks cannot become one. On update, a new id moves the task to that parent and null unlinks it. */
       parentId?: string | null;
+    };
+    TaskPatch: components["schemas"]["TaskWrite"] & {
+      /** @description The task `version` you last read. When the task has changed since, the update is rejected with 409 `Task was modified by someone else. Refresh and retry.` Omit it and the last write wins. */
+      expectedVersion?: number;
     };
     CustomerType: {
       id?: string;
@@ -3204,6 +3303,45 @@ export interface components {
         "application/json": components["schemas"]["Error"];
       };
     };
+    /** @description Malformed JSON (`{ "error": "Invalid JSON body." }`), a body that fails validation (`ValidationErrorTree`, for example a title over 500 characters), or a broken task rule (`Error`): an invalid parent, assignee, role, priority or description content, or a milestone or cycle outside the task's project */
+    TaskBadRequest: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json":
+          | components["schemas"]["Error"]
+          | components["schemas"]["ValidationErrorTree"];
+      };
+    };
+    /** @description The task, project, status or label is not found in this workspace, or the task is archived */
+    TaskNotFound: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description `Task was modified by someone else. Refresh and retry.` when `expectedVersion` is stale, or `Status "<name>" is at its task limit (<n>).` when the target status has a blocking WIP limit */
+    TaskConflict: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
+    /** @description Over the key's rate limit, or over 30 assignee changes a minute per key. Carries `Retry-After` and `X-RateLimit-*` headers. */
+    TooManyRequests: {
+      headers: {
+        "Retry-After"?: number;
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": components["schemas"]["Error"];
+      };
+    };
     /** @description Malformed JSON (`{ "error": "Invalid JSON body." }`), or a body that fails validation (`ValidationErrorTree`) */
     InvalidWriteBody: {
       headers: {
@@ -3313,6 +3451,17 @@ export interface components {
       content: {
         "application/json": {
           data: components["schemas"]["CommunityMemberBadge"];
+        };
+      };
+    };
+    /** @description Which members the notification was accepted for and which were skipped */
+    CommunityNotificationSendResultItem: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": {
+          data: components["schemas"]["CommunityNotificationSendResult"];
         };
       };
     };
@@ -3441,6 +3590,18 @@ export interface components {
       content: {
         "application/json": {
           data: components["schemas"]["ProjectLabel"][];
+          meta: components["schemas"]["ListMeta"];
+        };
+      };
+    };
+    /** @description Paginated roles that can be assigned in a project */
+    ProjectAssignableRoleList: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": {
+          data: components["schemas"]["ProjectAssignableRole"][];
           meta: components["schemas"]["ListMeta"];
         };
       };
@@ -4052,6 +4213,24 @@ export interface operations {
       200: components["responses"]["ProjectLabelList"];
     };
   };
+  listProjectAssignableRoles: {
+    parameters: {
+      query?: {
+        limit?: components["parameters"]["Limit"];
+        offset?: components["parameters"]["Offset"];
+        search?: components["parameters"]["Search"];
+      };
+      header?: never;
+      path: {
+        projectId: components["parameters"]["ProjectId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: components["responses"]["ProjectAssignableRoleList"];
+    };
+  };
   listProjectTasks: {
     parameters: {
       query?: {
@@ -4088,6 +4267,11 @@ export interface operations {
     };
     responses: {
       201: components["responses"]["TaskItem"];
+      400: components["responses"]["TaskBadRequest"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["TaskNotFound"];
+      409: components["responses"]["TaskConflict"];
+      429: components["responses"]["TooManyRequests"];
     };
   };
   getTask: {
@@ -4116,6 +4300,9 @@ export interface operations {
     requestBody?: never;
     responses: {
       200: components["responses"]["TaskItem"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["TaskNotFound"];
+      429: components["responses"]["TooManyRequests"];
     };
   };
   updateTask: {
@@ -4129,11 +4316,16 @@ export interface operations {
     };
     requestBody?: {
       content: {
-        "application/json": components["schemas"]["TaskWrite"];
+        "application/json": components["schemas"]["TaskPatch"];
       };
     };
     responses: {
       200: components["responses"]["TaskItem"];
+      400: components["responses"]["TaskBadRequest"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["TaskNotFound"];
+      409: components["responses"]["TaskConflict"];
+      429: components["responses"]["TooManyRequests"];
     };
   };
   listCustomers: {
@@ -6391,6 +6583,42 @@ export interface operations {
           "application/json": components["schemas"]["Error"];
         };
       };
+    };
+  };
+  sendCommunityNotifications: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CommunityNotificationSend"];
+      };
+    };
+    responses: {
+      200: components["responses"]["CommunityNotificationSendResultItem"];
+      /** @description `Invalid JSON body.`, or a body that fails validation (a readable message naming the field) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      403: components["responses"]["Forbidden"];
+      /** @description No community */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      429: components["responses"]["TooManyRequests"];
     };
   };
   listSites: {

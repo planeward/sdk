@@ -15,6 +15,8 @@ import type {
   CommunityMemberBadge,
   CommunityMessage,
   CommunityModuleProgress,
+  CommunityNotificationSend,
+  CommunityNotificationSendResult,
   CursorListResponse,
   DataResponse,
   EventAttendanceSet,
@@ -226,6 +228,18 @@ export type PlanewardClient = {
       ) => Promise<DataResponse<CommunityBadge>>;
       /** Deletes the badge and every award of it. */
       delete: (badgeId: string) => Promise<CommunityBadgeDeletion>;
+    };
+    notifications: {
+      /**
+       * Sends a bell and push notification, titled with the app's name, to up
+       * to 100 members. `href` is a path inside your app, such as
+       * `/orders/123`. Members who turned your app's notifications off are
+       * still listed in `accepted`. Pass `key` to make a retry safe. Apps can't
+       * send email or set the title.
+       */
+      send: (
+        input: CommunityNotificationSend
+      ) => Promise<DataResponse<CommunityNotificationSendResult>>;
     };
   };
   events: {
@@ -486,6 +500,14 @@ export function createPlanewardClient({
           request<OperationResponse<"deleteCommunityBadge">>(
             "DELETE",
             `/community/badges/${segment(badgeId)}`
+          ),
+      },
+      notifications: {
+        send: async (input) =>
+          request<OperationResponse<"sendCommunityNotifications">>(
+            "POST",
+            "/community/notifications",
+            input
           ),
       },
     },

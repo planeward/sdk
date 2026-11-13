@@ -35,6 +35,12 @@ export type CommunityModuleProgress = Schemas["CommunityModuleProgress"];
 export type CommunityBadge = Schemas["CommunityBadge"];
 export type CommunityBadgeWrite = Schemas["CommunityBadgeWrite"];
 export type CommunityBadgePatch = Schemas["CommunityBadgePatch"];
+export type CommunityNotificationSend = Schemas["CommunityNotificationSend"];
+export type CommunityNotificationSkipReason =
+  Schemas["CommunityNotificationSkipReason"];
+export type CommunityNotificationSkip = Schemas["CommunityNotificationSkip"];
+export type CommunityNotificationSendResult =
+  Schemas["CommunityNotificationSendResult"];
 
 // Events and forms -----------------------------------------------------------
 
@@ -92,3 +98,6 @@ export type CommunityBadgeDeletion = OperationResponse<"deleteCommunityBadge">;
 /** `DELETE /community/members/{memberId}/badges/{badgeId}` result. */
 export type CommunityBadgeRevocation =
   OperationResponse<"revokeCommunityBadge">;
+/** `POST /community/notifications` result. */
+export type CommunityNotificationSendResponse =
+  OperationResponse<"sendCommunityNotifications">;

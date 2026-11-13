@@ -77,23 +77,24 @@ Failed requests throw `PlanewardApiError` with `status` and the API's `error` me
 
 Every id you pass is one URL path segment. The client throws a `TypeError` before sending anything when an id is empty, `.` or `..`, or contains `/` or `\` (also when percent-encoded, such as `%2e%2e` or `%2F`), so an untrusted id can't reach another endpoint: `members.badges.revoke("..", badgeId)` would otherwise become `DELETE /community/badges/{badgeId}`.
 
-| Method                                                                        | Request                                                         | Scope                       |
-| ----------------------------------------------------------------------------- | --------------------------------------------------------------- | --------------------------- |
-| `community.channels.list()`                                                   | `GET /community/channels`                                       | `COMMUNITY_MESSAGES_READ`   |
-| `community.messages.list(channelId, { cursor, limit })`                       | `GET /community/channels/{channelId}/messages`                  | `COMMUNITY_MESSAGES_READ`   |
-| `community.messages.create(channelId, { body, replyToId })`                   | `POST /community/channels/{channelId}/messages`                 | `COMMUNITY_MESSAGES_WRITE`  |
-| `community.members.list({ limit, offset, search })`, `.get(memberId)`         | `GET /community/members[/{memberId}]`                           | `COMMUNITY_MEMBERS_READ`    |
-| `community.courses.list({ limit, offset })`, `.get(courseId)`                 | `GET /community/courses[/{courseId}]`                           | `COURSES_READ`              |
-| `community.members.progress.list(memberId, { courseId })`                     | `GET /community/members/{memberId}/progress`                    | `COURSES_READ`              |
-| `community.members.progress.complete(memberId, moduleId)`, `.uncomplete(...)` | `PUT` / `DELETE .../progress/{moduleId}`                        | `COURSE_PROGRESS_WRITE`     |
-| `community.badges.list()`, `.upsert({ key, name, color, description })`       | `GET` / `POST /community/badges`                                | `COMMUNITY_BADGES_WRITE`    |
-| `community.badges.update(badgeId, patch)`, `.delete(badgeId)`                 | `PATCH` / `DELETE /community/badges/{badgeId}`                  | `COMMUNITY_BADGES_WRITE`    |
-| `community.members.badges.award(memberId, badgeId)`, `.revoke(...)`           | `PUT` / `DELETE /community/members/{memberId}/badges/{badgeId}` | `COMMUNITY_BADGES_WRITE`    |
-| `events.list({ limit, offset })`, `.get(eventId)`                             | `GET /events[/{eventId}]`                                       | `EVENTS_READ`               |
-| `events.registrations.create(eventId, { memberId })`, `.cancel(...)`          | `POST` / `DELETE /events/{eventId}/registrations`               | `EVENT_REGISTRATIONS_WRITE` |
-| `events.attendance.set(eventId, { memberId, attendance })`                    | `PUT /events/{eventId}/attendance`                              | `EVENT_REGISTRATIONS_WRITE` |
-| `forms.list({ limit, offset, search })`                                       | `GET /forms`                                                    | `FORMS_SUBMIT`              |
-| `forms.submissions.create(formId, { memberId, fields })`                      | `POST /forms/{formId}/submissions`                              | `FORMS_SUBMIT`              |
+| Method                                                                        | Request                                                         | Scope                           |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------- |
+| `community.channels.list()`                                                   | `GET /community/channels`                                       | `COMMUNITY_MESSAGES_READ`       |
+| `community.messages.list(channelId, { cursor, limit })`                       | `GET /community/channels/{channelId}/messages`                  | `COMMUNITY_MESSAGES_READ`       |
+| `community.messages.create(channelId, { body, replyToId })`                   | `POST /community/channels/{channelId}/messages`                 | `COMMUNITY_MESSAGES_WRITE`      |
+| `community.members.list({ limit, offset, search })`, `.get(memberId)`         | `GET /community/members[/{memberId}]`                           | `COMMUNITY_MEMBERS_READ`        |
+| `community.courses.list({ limit, offset })`, `.get(courseId)`                 | `GET /community/courses[/{courseId}]`                           | `COURSES_READ`                  |
+| `community.members.progress.list(memberId, { courseId })`                     | `GET /community/members/{memberId}/progress`                    | `COURSES_READ`                  |
+| `community.members.progress.complete(memberId, moduleId)`, `.uncomplete(...)` | `PUT` / `DELETE .../progress/{moduleId}`                        | `COURSE_PROGRESS_WRITE`         |
+| `community.badges.list()`, `.upsert({ key, name, color, description })`       | `GET` / `POST /community/badges`                                | `COMMUNITY_BADGES_WRITE`        |
+| `community.badges.update(badgeId, patch)`, `.delete(badgeId)`                 | `PATCH` / `DELETE /community/badges/{badgeId}`                  | `COMMUNITY_BADGES_WRITE`        |
+| `community.members.badges.award(memberId, badgeId)`, `.revoke(...)`           | `PUT` / `DELETE /community/members/{memberId}/badges/{badgeId}` | `COMMUNITY_BADGES_WRITE`        |
+| `community.notifications.send({ memberIds, body, href, key })`                | `POST /community/notifications`                                 | `COMMUNITY_NOTIFICATIONS_WRITE` |
+| `events.list({ limit, offset })`, `.get(eventId)`                             | `GET /events[/{eventId}]`                                       | `EVENTS_READ`                   |
+| `events.registrations.create(eventId, { memberId })`, `.cancel(...)`          | `POST` / `DELETE /events/{eventId}/registrations`               | `EVENT_REGISTRATIONS_WRITE`     |
+| `events.attendance.set(eventId, { memberId, attendance })`                    | `PUT /events/{eventId}/attendance`                              | `EVENT_REGISTRATIONS_WRITE`     |
+| `forms.list({ limit, offset, search })`                                       | `GET /forms`                                                    | `FORMS_SUBMIT`                  |
+| `forms.submissions.create(formId, { memberId, fields })`                      | `POST /forms/{formId}/submissions`                              | `FORMS_SUBMIT`                  |
 
 Paths are under `/api/v1`. Methods that act for a member take `memberId`, the community membership id (`viewer.sub` for a member viewer); the member must be active. A member without a CRM contact gets one on their first registration or form submission.
 
@@ -102,6 +103,8 @@ Apps only see events and forms that staff marked "Show in community":
 - **Events** never include the CRM pipeline (`pipeline`, `pipelineId`), and registrations leave out `contact` and `opportunityId`. An event's `form` and `formId` are set only when that form is published and shown in community, so the app can list and submit it; otherwise both are `null`.
 - **Forms** from `forms.list()` are published, with the real `submissionCount`, the field definition in `fields` (`FormDefinition` → `FormSection` → `FormField`) and only the render part of `settings`: `respondent`, `theme` and `css`. Answer each field under its `slug` (or `id`); see `FormAnswerValue`.
 - **Courses** are the published ones sold through at least one product, and progress covers only those courses.
+
+`community.notifications.send()` sends a bell and push notification to up to 100 members. Planeward titles it with your app's name; apps can't set the title or send email. `href` is a path inside your app, resolved against your Experience URL's origin (`/` is its root): it starts with a single `/`, is at most 512 characters, and has no `.` or `..` segments and no `#` fragment. Opening the notification opens your app's channel with the app loaded at that path, so read it from your own URL and treat it as untrusted. The response is 200 even when nobody was notified: `accepted` lists member ids, including members who turned your app's notifications off (your app is never told who did), and `skipped` gives every other member a `reason`: `member_not_found`, `member_not_active`, `channel_not_visible` (the app has no channel `@everyone` can view) or `over_limit` (10 an hour per member from one app). Pass `key` when you retry: a member who got the same `key` from your app in the last 24 hours is listed in `accepted` and not notified again.
 
 ```ts
 const { data: channels } = await pw.community.channels.list();
@@ -118,6 +121,14 @@ const { data: badge } = await pw.community.badges.upsert({
 });
 await pw.community.members.badges.award(memberId, badge.id);
 
+const { data: sent } = await pw.community.notifications.send({
+  memberIds: [memberId],
+  body: "You earned the First post badge.",
+  href: "/badges/first-post", // a path inside your app
+  key: "first-post-badge", // a retry within 24 hours isn't sent twice
+});
+// sent.accepted: ["cm_..."]; sent.skipped: [{ memberId, reason }]
+
 try {
   await pw.events.registrations.create(eventId, { memberId });
 } catch (error) {
@@ -129,7 +140,7 @@ try {
 
 ### Types
 
-Request and response types are generated from the [Planeward OpenAPI spec](https://docs.planeward.com/openapi.json). `@planeward/sdk/server` exports friendly names (`CommunityAppMember`, `CommunityChannel`, `CommunityMessage`, `CommunityCourse`, `CommunityModuleProgress`, `CommunityBadge`, `PlanewardEvent`, `EventRegistration`, `PlanewardForm`, `FormDefinition`, `FormField`, `FormAnswerValue`, `FormSubmission`, ...). The raw `openapi-typescript` output is at `@planeward/sdk/openapi`:
+Request and response types are generated from the [Planeward OpenAPI spec](https://docs.planeward.com/openapi.json). `@planeward/sdk/server` exports friendly names (`CommunityAppMember`, `CommunityChannel`, `CommunityMessage`, `CommunityCourse`, `CommunityModuleProgress`, `CommunityBadge`, `CommunityNotificationSend`, `CommunityNotificationSendResult`, `PlanewardEvent`, `EventRegistration`, `PlanewardForm`, `FormDefinition`, `FormField`, `FormAnswerValue`, `FormSubmission`, ...). The raw `openapi-typescript` output is at `@planeward/sdk/openapi`:
 
 ```ts
 import type { components, paths } from "@planeward/sdk/openapi";

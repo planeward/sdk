@@ -397,6 +397,7 @@ export type ClientResponseTypesResolve = [
   ExpectResolved<IsNever<OperationResponse<"upsertCommunityBadge", 201>>>,
   ExpectResolved<IsNever<OperationResponse<"updateCommunityBadge">>>,
   ExpectResolved<IsNever<OperationResponse<"deleteCommunityBadge">>>,
+  ExpectResolved<IsNever<OperationResponse<"sendCommunityNotifications">>>,
   ExpectResolved<IsNever<OperationResponse<"listEvents">>>,
   ExpectResolved<IsNever<OperationResponse<"getEvent">>>,
   ExpectResolved<IsNever<OperationResponse<"registerEventContact", 201>>>,
@@ -535,6 +536,24 @@ const clientCases: {
     call: (pw) => pw.community.members.badges.revoke("cm_1", "badge_1"),
     method: "DELETE",
     url: `${API}/community/members/cm_1/badges/badge_1`,
+  },
+  {
+    name: "community.notifications.send",
+    call: (pw) =>
+      pw.community.notifications.send({
+        memberIds: ["cm_1", "cm_2"],
+        body: "Your order #123 has shipped.",
+        href: "/orders/123",
+        key: "order-123-shipped",
+      }),
+    method: "POST",
+    url: `${API}/community/notifications`,
+    body: {
+      memberIds: ["cm_1", "cm_2"],
+      body: "Your order #123 has shipped.",
+      href: "/orders/123",
+      key: "order-123-shipped",
+    },
   },
   {
     name: "events.list",
