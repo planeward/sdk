@@ -128,6 +128,28 @@ export interface paths {
     patch: operations["updateTask"];
     trace?: never;
   };
+  "/tasks/{taskId}/move": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        taskId: components["parameters"]["TaskId"];
+      };
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Move a task to another project
+     * @description Moves the task to another project in the same workspace. Its subtasks move with it; a subtask moved on its own leaves its parent. Each task goes to `statusId` (task only) or the target status with the same name, else the first of the same type, else the first status, at the end of the column. Milestone and cycle are cleared. The label is kept when the target project has a label with the same name, otherwise removed. Comments, checklist, attachments and assignees move with the task. Answers 400 when an assigned person or role can't be assigned in the target project, for support tasks, archived tasks, archived projects and the task's own project; 409 when the target status is at its blocking WIP limit or `expectedVersion` is stale. Emits `task.moved` for each moved task.
+     */
+    post: operations["moveTask"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/customers": {
     parameters: {
       query?: never;
@@ -974,9 +996,106 @@ export interface paths {
     head?: never;
     /**
      * Update a payment
-     * @description A new `amount` on a completed payment posts a ledger adjustment and re-splits revenue share; `adjustmentNote` records why. `status: REFUNDED` on a completed payment runs the full refund (ledger, revenue share, plan access). Refunded payments accept only `note` and `paidAt`. Invoice payments cannot change `amount` (edit the invoice). `customerId` is locked once the payment granted a plan, paid an invoice, or posted to the ledger. Changing `amount` and refunding in one request is rejected.
+     * @description A new `amount` on a completed payment posts a ledger adjustment and re-splits revenue share; `adjustmentNote` records why. `status: REFUNDED` on a completed payment runs the full refund (ledger, revenue share, plan access). Refunded payments accept only `note` and `paidAt`. Invoice payments cannot change `amount` (edit the invoice). `customerId` is locked once the payment granted a plan, paid an invoice, or posted to the ledger. Changing `amount` and refunding in one request is rejected. Omit `paidAt` to keep the payment's current paid date.
      */
     patch: operations["updatePayment"];
+    trace?: never;
+  };
+  "/balances": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get a balance */
+    get: operations["getBalance"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/balances/entries": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * List balance entries
+     * @description One account's entries, newest first.
+     */
+    get: operations["listBalanceEntries"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/balances/credit": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Credit a balance
+     * @description Settled at once; the recipient is notified (never the treasury). Crediting an active customer opens their wallet.
+     */
+    post: operations["creditBalance"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/balances/debit": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Debit a balance
+     * @description May take the balance below zero. Never opens a wallet.
+     */
+    post: operations["debitBalance"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/balances/transfer": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Transfer between balances
+     * @description A `SYSTEM` debit on `from` and a `SYSTEM` credit on `to`, both or neither. `from` and `to` must differ; the debit may take `from` below zero.
+     */
+    post: operations["transferBalance"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   "/purchases": {
@@ -990,7 +1109,7 @@ export interface paths {
     put?: never;
     /**
      * Record a purchase
-     * @description Idempotent on `externalRef`. `201` when recorded, `200` when already recorded. Amount is integer minor units.
+     * @description Idempotent on `externalRef`. `201` when recorded, `200` when already recorded: an exact replay (same buyer, source and plan) returns the first sale with `status: already_recorded` and never records a second one; a replay with a different `amount` also returns the first sale (`200`), with `warning: amount_mismatch`. An `externalRef` already used by another buyer, source or plan returns `400` "This reference is already used by another payment." Amount is integer minor units. With `productPlanId` the sale is a catalog plan: `amount` defaults to the plan's price, and the buyer gets the same access, revenue share split (`affiliateCode` credits an affiliate) and messages as a checkout sale. Selling a plan needs the `BALANCES_WRITE` scope (`ALL_ACCESS` counts) besides `PAYMENTS_WRITE`, and `commerce:manage` on the key; without either the call returns `403`.
      */
     post: operations["recordPurchase"];
     delete?: never;
@@ -2129,6 +2248,14 @@ export interface components {
       /** @description The task `version` you last read. When the task has changed since, the update is rejected with 409 `Task was modified by someone else. Refresh and retry.` Omit it and the last write wins. */
       expectedVersion?: number;
     };
+    TaskMove: {
+      /** @description The project to move the task to, in the same workspace. */
+      projectId: string;
+      /** @description A status in the target project. Omit it to map the current status (same name, else same type, else the first status). */
+      statusId?: string;
+      /** @description The task `version` you last read. When the task has changed since, the move is rejected with 409. */
+      expectedVersion?: number;
+    };
     CustomerType: {
       id?: string;
       name?: string;
@@ -2284,6 +2411,8 @@ export interface components {
         id: string;
         name: string;
       } | null;
+      /** @description Products whose buyers are registered once they pay. */
+      productIds?: string[];
       /** @description Visible to community apps. Staff turn it on in the event's settings. */
       showInCommunity: boolean;
       /** @description Get only. */
@@ -2312,6 +2441,8 @@ export interface components {
       formId?: string | null;
       /** @description Each registration opens a deal in the first open stage. */
       pipelineId?: string | null;
+      /** @description Products whose buyers are registered once they pay. On update, replaces the whole set; omit to keep it. */
+      productIds?: string[];
     };
     EventRegistration: {
       id: string;
@@ -2319,6 +2450,8 @@ export interface components {
       contactId: string;
       /** @description Not sent to app callers. */
       opportunityId?: string | null;
+      /** @description The payment that bought the seat; null for seats taken any other way. Not sent to app callers. */
+      paymentId?: string | null;
       /** Format: date-time */
       registeredAt: string;
       /** Format: date-time */
@@ -2825,7 +2958,8 @@ export interface components {
       | "API"
       | "WORKFLOW"
       | "MCP"
-      | "IMPORT";
+      | "IMPORT"
+      | "POLAR";
     PaymentItem: {
       name: string;
       sku?: string;
@@ -2834,11 +2968,19 @@ export interface components {
       unitAmount: number;
     };
     PurchaseWrite: {
+      /** @description Your order id; the idempotency key, unique per workspace. An exact replay returns the first sale (`already_recorded`); a reference already used by another buyer, source or plan returns `400`. */
       externalRef: string;
-      /** @description Integer minor units */
-      amount: number;
+      /** @description Integer minor units. Required unless `productPlanId` is set; with a plan it defaults to the plan's price. */
+      amount?: number;
+      /** @description Catalog plan sold. Gives the buyer the plan's access, splits revenue share and sends the checkout messages. Needs the `BALANCES_WRITE` scope (`ALL_ACCESS` counts) besides `PAYMENTS_WRITE`, and `commerce:manage`; otherwise `403`. */
+      productPlanId?: string;
+      /** @description Affiliate referral code credited in the plan's revenue share split. Needs `productPlanId`. */
+      affiliateCode?: string;
       currency?: string;
-      /** Format: date-time */
+      /**
+       * Format: date-time
+       * @description When the buyer paid (ISO-8601). A value that isn't a valid date returns `400`.
+       */
       paidAt?: string;
       sourceLabel?: string;
       opportunityId?: string;
@@ -2896,8 +3038,90 @@ export interface components {
       customerId?: string;
       amount?: number;
       status?: string;
+      /**
+       * Format: date-time
+       * @description When the money was received. ISO-8601 with seconds and an offset (`Z` or `±HH:MM`), such as `2026-11-01T09:30:00Z`. On create it defaults to now for a `COMPLETED` payment. On update, omit it to keep the current paid date. A value that is invalid or has no offset returns `400`.
+       */
+      paidAt?: string | null;
       note?: string | null;
       invoiceId?: string | null;
+      /** @description Create only. Idempotency key, unique per workspace: a repeat with the same `externalRef`, customer and source returns the first payment instead of recording another. An `externalRef` already used by a payment of another customer or source returns `400` "This reference is already used by another payment." */
+      externalRef?: string;
+    };
+    /** @enum {string} */
+    BalanceAccountKind:
+      "treasury" | "workspace_member" | "community_member" | "customer";
+    BalanceAccount: {
+      kind: components["schemas"]["BalanceAccountKind"];
+      /** @description Workspace membership id, community membership id, or customer id. Required unless `kind` is `treasury`. */
+      id?: string;
+    };
+    BalanceSummary: {
+      /** @description Settled credits minus settled debits */
+      settled: number;
+      /** @description Credits not yet available */
+      pending: number;
+      /** @description Settled minus open withdrawals; may be negative */
+      available: number;
+    };
+    BalanceEntry: {
+      id: string;
+      accountId: string;
+      amount: number;
+      /** @enum {string} */
+      direction: "CREDIT" | "DEBIT";
+      /** @enum {string} */
+      type:
+        "SHARE" | "REFERRAL" | "DEPOSIT" | "WITHDRAWAL" | "REVERSAL" | "SYSTEM";
+      description: string;
+      /** @enum {string} */
+      source: "MANUAL" | "WORKFLOW" | "API" | "MCP";
+      reference?: string | null;
+      /** Format: date-time */
+      availableAt?: string | null;
+      /** Format: date-time */
+      createdAt: string;
+    };
+    BalanceCreditWrite: {
+      account: components["schemas"]["BalanceAccount"];
+      /** @description Integer minor units */
+      amount: number;
+      description: string;
+      /** @description Idempotency key, unique per account */
+      reference: string;
+      /**
+       * @default SHARE
+       * @enum {string}
+       */
+      type?: "SHARE" | "DEPOSIT";
+    };
+    BalanceDebitWrite: {
+      account: components["schemas"]["BalanceAccount"];
+      /** @description Integer minor units */
+      amount: number;
+      description: string;
+      /** @description Idempotency key, unique per account */
+      reference: string;
+      /**
+       * @default SYSTEM
+       * @enum {string}
+       */
+      type?: "SYSTEM" | "WITHDRAWAL";
+    };
+    BalanceTransferWrite: {
+      from: components["schemas"]["BalanceAccount"];
+      to: components["schemas"]["BalanceAccount"];
+      /** @description Integer minor units */
+      amount: number;
+      description: string;
+      /** @description Idempotency key; stored on both legs */
+      reference: string;
+    };
+    BalanceEntryResult: {
+      entry: components["schemas"]["BalanceEntry"];
+      /** @description False when `reference` was already posted on this account */
+      created: boolean;
+      balance: components["schemas"]["BalanceSummary"];
     };
     Channel: {
       id: string;
@@ -3838,6 +4062,34 @@ export interface components {
         };
       };
     };
+    /** @description Posted entry (`201`) or the entry first posted with this reference (`200`) */
+    BalanceEntryResult: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": {
+          data: components["schemas"]["BalanceEntryResult"];
+        };
+      };
+    };
+    /** @description Posted transfer (`201`) or the one first posted with this reference (`200`) */
+    BalanceTransferResult: {
+      headers: {
+        [name: string]: unknown;
+      };
+      content: {
+        "application/json": {
+          data: {
+            debit: components["schemas"]["BalanceEntry"];
+            credit: components["schemas"]["BalanceEntry"];
+            created: boolean;
+            fromBalance: components["schemas"]["BalanceSummary"];
+            toBalance: components["schemas"]["BalanceSummary"];
+          };
+        };
+      };
+    };
     /** @description Recorded or already-recorded purchase */
     PurchaseItem: {
       headers: {
@@ -3848,7 +4100,10 @@ export interface components {
           data: {
             /** @enum {string} */
             status: "recorded" | "already_recorded";
-            /** @enum {string} */
+            /**
+             * @description Set on a replay (`already_recorded`) whose `amount` differs from the first sale's. The first sale is returned unchanged.
+             * @enum {string}
+             */
             warning?: "amount_mismatch";
             payment: components["schemas"]["Payment"];
             /** @description Present when `siteVisit` was sent */
@@ -4077,6 +4332,9 @@ export interface components {
     };
   };
   parameters: {
+    BalanceAccountKind: components["schemas"]["BalanceAccountKind"];
+    /** @description Workspace membership id, community membership id, or customer id. Required unless `kind` is `treasury`. */
+    BalanceAccountId: string;
     Limit: number;
     Offset: number;
     Search: string;
@@ -4317,6 +4575,29 @@ export interface operations {
     requestBody?: {
       content: {
         "application/json": components["schemas"]["TaskPatch"];
+      };
+    };
+    responses: {
+      200: components["responses"]["TaskItem"];
+      400: components["responses"]["TaskBadRequest"];
+      403: components["responses"]["Forbidden"];
+      404: components["responses"]["TaskNotFound"];
+      409: components["responses"]["TaskConflict"];
+      429: components["responses"]["TooManyRequests"];
+    };
+  };
+  moveTask: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        taskId: components["parameters"]["TaskId"];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["TaskMove"];
       };
     };
     responses: {
@@ -5787,6 +6068,16 @@ export interface operations {
         source?: components["schemas"]["PaymentSource"];
         sourceLabel?: string;
         externalRef?: string;
+        /** @description Payments with any of these statuses. Repeat the param or send a comma list. */
+        statuses?: ("PENDING" | "COMPLETED" | "FAILED" | "REFUNDED")[];
+        /** @description Payment date (the paid date, else the recorded date) on or after this moment. ISO-8601 with seconds and an offset. `from` after `to` returns `400`. */
+        from?: string;
+        /** @description Payment date on or before this moment. ISO-8601 with seconds and an offset. */
+        to?: string;
+        /** @description Payments for any plan of this product. */
+        productId?: string;
+        /** @description Payments whose Meta Purchase conversion has any of these statuses. Repeat the param or send a comma list. */
+        metaStatuses?: components["schemas"]["MetaConversionStatus"][];
       };
       header?: never;
       path?: never;
@@ -5811,6 +6102,15 @@ export interface operations {
     };
     responses: {
       201: components["responses"]["PaymentItem"];
+      /** @description Invalid body, or a refused create: an `externalRef` already used by another customer's or source's payment (`{ "error": "This reference is already used by another payment." }`), or an invoice that can't take this payment. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
     };
   };
   getPayment: {
@@ -5848,6 +6148,115 @@ export interface operations {
       200: components["responses"]["PaymentItem"];
     };
   };
+  getBalance: {
+    parameters: {
+      query: {
+        kind: components["parameters"]["BalanceAccountKind"];
+        /** @description Workspace membership id, community membership id, or customer id. Required unless `kind` is `treasury`. */
+        id?: components["parameters"]["BalanceAccountId"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description One account's balance; `accountId` is null when it has no wallet */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["BalanceSummary"] & {
+              account: components["schemas"]["BalanceAccount"];
+              accountId: string | null;
+            };
+          };
+        };
+      };
+    };
+  };
+  listBalanceEntries: {
+    parameters: {
+      query: {
+        kind: components["parameters"]["BalanceAccountKind"];
+        /** @description Workspace membership id, community membership id, or customer id. Required unless `kind` is `treasury`. */
+        id?: components["parameters"]["BalanceAccountId"];
+        limit?: components["parameters"]["Limit"];
+        offset?: components["parameters"]["Offset"];
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Paginated entries */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": {
+            data: components["schemas"]["BalanceEntry"][];
+            meta: components["schemas"]["ListMeta"];
+          };
+        };
+      };
+    };
+  };
+  creditBalance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BalanceCreditWrite"];
+      };
+    };
+    responses: {
+      200: components["responses"]["BalanceEntryResult"];
+      201: components["responses"]["BalanceEntryResult"];
+    };
+  };
+  debitBalance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BalanceDebitWrite"];
+      };
+    };
+    responses: {
+      200: components["responses"]["BalanceEntryResult"];
+      201: components["responses"]["BalanceEntryResult"];
+    };
+  };
+  transferBalance: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["BalanceTransferWrite"];
+      };
+    };
+    responses: {
+      200: components["responses"]["BalanceTransferResult"];
+      201: components["responses"]["BalanceTransferResult"];
+    };
+  };
   recordPurchase: {
     parameters: {
       query?: never;
@@ -5863,6 +6272,24 @@ export interface operations {
     responses: {
       200: components["responses"]["PurchaseItem"];
       201: components["responses"]["PurchaseItem"];
+      /** @description Invalid body, or a refused sale: an `externalRef` already used by another buyer, source or plan (`{ "error": "This reference is already used by another payment." }`), or a plan that can't be sold this way. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Error"];
+        };
+      };
+      /** @description Missing scope (`missingScope` names it); `productPlanId` without the `BALANCES_WRITE` scope: `{ "error": "Selling a catalog plan needs the balances:write scope." }`; or `productPlanId` without `commerce:manage`: `{ "error": "You do not have permission to sell catalog plans." }`. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ForbiddenError"];
+        };
+      };
     };
   };
   reversePurchase: {
