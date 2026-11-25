@@ -1,6 +1,6 @@
 # @planeward/sdk
 
-Build apps that run inside a Planeward community. Your app is loaded in an iframe as a member channel or a staff dashboard view. This SDK covers the iframe handshake, viewer token verification, webhook verification, and a typed API client.
+Build apps that run inside Planeward: in a workspace, as a staff **dashboard** (`/dashboard`), and in a community, as a member **experience** inside an app channel (`/experience`). Your app is loaded in an iframe. This SDK covers the iframe handshake, viewer token verification, app permissions, webhook verification, and a typed API client.
 
 ## Install
 
@@ -21,6 +21,7 @@ const app = createPlanewardApp({
 
 const context = await app.ready; // { view, channelId, theme }
 const token = await app.getToken(); // cached, refreshed ~30s before expiry
+const canModerate = app.can("posts.moderate"); // from the token's permissions
 
 await fetch("/api/me", { headers: { Authorization: `Bearer ${token}` } });
 
@@ -33,7 +34,7 @@ unsubscribe();
 app.destroy();
 ```
 
-`ready` rejects with "Not running inside a Planeward community" when no host answers in time. Importing the module is SSR-safe; call `createPlanewardApp()` in the browser only (for example inside `useEffect`). Do not rely on third-party cookies inside the iframe; send the token to your backend instead.
+`ready` rejects with "Not running inside Planeward" when no host answers in time. Importing the module is SSR-safe; call `createPlanewardApp()` in the browser only (for example inside `useEffect`). Do not rely on third-party cookies inside the iframe; send the token to your backend instead.
 
 ## Server: verify the viewer
 
@@ -41,12 +42,68 @@ app.destroy();
 import { verifyPlanewardToken } from "@planeward/sdk/server";
 
 const viewer = await verifyPlanewardToken(token, { appId: "app_123" });
-// viewer.sub, viewer.name, viewer.role ("member" | "admin"), viewer.installationId, ...
+// viewer.sub, viewer.name, viewer.role ("member" | "admin"), viewer.installationId, viewer.permissions, ...
 ```
 
 The token is an RS256 JWT that expires after 5 minutes. It is checked against `https://app.planeward.com/api/auth/jwks`, and the function throws when it is invalid. Pass `baseUrl` to target another Planeward deployment.
 
 A valid token issued for a different app throws `PlanewardTokenAudienceError` (`tokenAudience`, `expectedAppId`) with the message `Token is for app "<aud>", but this backend expects "<appId>". Check PLANEWARD_APP_ID.` Run one app id per deployment.
+
+## Permissions
+
+Apps can declare their own permissions, which the workspace then grants. Serve the declaration at `GET {experience origin}/.well-known/planeward-permissions` (`PLANEWARD_PERMISSIONS_PATH`); a 404 means the app declares none.
+
+```ts
+// app/.well-known/planeward-permissions/route.ts (Next.js)
+import { definePermissions } from "@planeward/sdk/server";
+
+const permissions = definePermissions({
+  dashboard: [
+    { key: "reports.export", name: "Export reports", default: "off" },
+  ],
+  community: [
+    { key: "posts.create", name: "Create posts", default: "on" },
+    {
+      key: "posts.moderate",
+      name: "Moderate posts",
+      description: "Hide, pin and delete other members' posts.",
+      default: "off",
+    },
+  ],
+});
+
+export function GET() {
+  return Response.json(permissions);
+}
+```
+
+`definePermissions` returns its input unchanged and keeps the keys' literal types (`PlanewardPermissionKey<typeof permissions>`). The rules, which `validatePermissionsResponse(json)` checks and Planeward enforces:
+
+- The body is `{ "dashboard": Entry[], "community": Entry[] }`; a missing list means `[]`.
+- An entry is `{ key, name, description?, default: "on" | "off" }`.
+- `key` matches `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$` (dotted, like `posts.moderate`) and is at most 64 characters.
+- `name` is 1–60 characters; `description` is up to 200.
+- Each list has at most 25 entries, with unique keys.
+
+`validatePermissionsResponse` returns `{ ok: true, value }` (both lists present, unknown fields dropped) or `{ ok: false, errors }` with one message per problem, such as `community[1].key: "posts.moderate" is listed twice.`. `planeward permissions` runs it against your running app.
+
+The viewer token's `permissions` claim lists the keys granted to that viewer: community keys in experience tokens, dashboard keys in dashboard tokens. Check them with `can`:
+
+```ts
+import { can, verifyPlanewardToken } from "@planeward/sdk/server";
+
+const viewer = await verifyPlanewardToken(token, { appId: "app_123" });
+if (!can(viewer, "posts.moderate")) {
+  return new Response("Forbidden", { status: 403 });
+}
+```
+
+In the browser, `app.can(key)` reads the current token without verifying it: use it to shape the UI, and always check on your backend. Tokens from a host without the claim grant nothing (`permissions: []`).
+
+How Planeward resolves a key:
+
+- **Community** keys are On, Unset or Off for `@everyone` (members), each membership plan and each staff role. A key starts at its `default`, then `@everyone` applies, then the member's plans combined (any On beats Off across plans), then their staff roles. Admins don't get app permissions automatically.
+- **Dashboard** keys are on or off per workspace role, starting from the declared `default`. The workspace owner has all of them.
 
 ## Server: call the Planeward API
 

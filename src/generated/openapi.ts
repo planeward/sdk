@@ -2336,7 +2336,8 @@ export interface components {
       | "BOOKING"
       | "IMPORT"
       | "MANUAL"
-      | "API";
+      | "API"
+      | "CHECKOUT";
     ContactWrite: {
       name: string;
       email?: string;

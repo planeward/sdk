@@ -1,3 +1,5 @@
+import { decodeJwt } from "jose";
+
 import {
   APP_MESSAGE,
   APP_SDK_PROTOCOL_VERSION,
@@ -26,6 +28,12 @@ export type PlanewardApp = {
   readonly context: AppContext | null;
   /** Returns a viewer token, requesting a fresh one when it expires within 30s. */
   getToken: () => Promise<string>;
+  /**
+   * Whether the current token grants `key` (its `permissions` claim). False
+   * before `ready`. Use it to shape the UI; your backend must check the
+   * verified claims with `can(viewer, key)` from `@planeward/sdk/server`.
+   */
+  can: (key: string) => boolean;
   /** Called when the host theme changes. Returns an unsubscribe function. */
   onThemeChange: (callback: (theme: AppTheme) => void) => () => void;
   /** Removes listeners and rejects pending requests. */
@@ -48,8 +56,22 @@ export type PlanewardAppWindow = {
 const DEFAULT_TIMEOUT_MS = 10_000;
 const REFRESH_BEFORE_EXPIRY_MS = 30_000;
 
-const NOT_IN_COMMUNITY_ERROR =
-  "Not running inside a Planeward community: no response from the host.";
+const NOT_IN_HOST_ERROR =
+  "Not running inside Planeward: no response from the host.";
+
+/** The `permissions` claim, read without verifying (UI hints only). */
+function tokenPermissions(token: string): ReadonlySet<string> {
+  try {
+    const { permissions } = decodeJwt(token);
+    return new Set(
+      Array.isArray(permissions)
+        ? permissions.filter((key): key is string => typeof key === "string")
+        : []
+    );
+  } catch {
+    return new Set();
+  }
+}
 
 function randomRequestId(): string {
   const cryptoApi = globalThis.crypto;
@@ -82,7 +104,11 @@ export function createPlanewardAppForWindow(
 
   let pinnedOrigin: string | null = null;
   let context: AppContext | null = null;
-  let token: { value: string; expiresAt: number } | null = null;
+  let token: {
+    value: string;
+    expiresAt: number;
+    permissions: ReadonlySet<string>;
+  } | null = null;
   let pending: PendingRequest | null = null;
   let destroyed = false;
   const themeListeners = new Set<(theme: AppTheme) => void>();
@@ -98,7 +124,7 @@ export function createPlanewardAppForWindow(
   ready.catch(() => undefined);
 
   const readyTimer = setTimeout(() => {
-    settleReady(new Error(NOT_IN_COMMUNITY_ERROR));
+    settleReady(new Error(NOT_IN_HOST_ERROR));
   }, timeoutMs);
 
   function settleReady(result: AppContext | Error) {
@@ -123,7 +149,11 @@ export function createPlanewardAppForWindow(
   }
 
   function acceptToken(message: AppTokenMessage) {
-    token = { value: message.token, expiresAt: message.expiresAt };
+    token = {
+      value: message.token,
+      expiresAt: message.expiresAt,
+      permissions: tokenPermissions(message.token),
+    };
     const previousTheme = context?.theme;
     context = { ...message.context };
     if (pending && message.requestId === pending.requestId) {
@@ -175,7 +205,7 @@ export function createPlanewardAppForWindow(
   function requestToken(): Promise<string> {
     if (pending) return pending.promise;
     if (pinnedOrigin === null) {
-      return Promise.reject(new Error(NOT_IN_COMMUNITY_ERROR));
+      return Promise.reject(new Error(NOT_IN_HOST_ERROR));
     }
     const requestId = randomRequestId();
     let resolve!: (token: string) => void;
@@ -230,6 +260,7 @@ export function createPlanewardAppForWindow(
       return context;
     },
     getToken,
+    can: (key) => token?.permissions.has(key) ?? false,
     onThemeChange(callback) {
       themeListeners.add(callback);
       return () => {

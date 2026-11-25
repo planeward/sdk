@@ -1,5 +1,5 @@
 /**
- * Planeward Community Apps contract. Mirrors the Planeward server's
+ * Planeward apps contract. Mirrors the Planeward server's
  * `apps/web/src/config/app/community-apps.ts` (in the Planeward repo, not this
  * template); keep both in sync.
  */
@@ -93,6 +93,12 @@ export type AppViewerTokenClaims = {
   role: AppViewerRole;
   name: string;
   avatar: string | null;
+  /**
+   * Keys from the app's permissions declaration granted to this viewer:
+   * community keys in experience tokens, dashboard keys in dashboard tokens.
+   * `verifyPlanewardToken` returns `[]` for a host that doesn't send it.
+   */
+  permissions: string[];
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -106,6 +112,9 @@ const isView = (value: unknown): value is AppView =>
 
 const isNullableString = (value: unknown): value is string | null =>
   value === null || typeof value === "string";
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === "string");
 
 export function isAppContext(value: unknown): value is AppContext {
   return (
@@ -141,6 +150,10 @@ export function parseHostMessage(value: unknown): HostToAppMessage | null {
   }
 }
 
+/**
+ * Checks verified claims. `permissions` must be a string array: the verifier
+ * fills a missing claim (hosts from before app permissions) with `[]` first.
+ */
 export function isAppViewerTokenClaims(
   value: unknown
 ): value is AppViewerTokenClaims {
@@ -157,6 +170,7 @@ export function isAppViewerTokenClaims(
     isView(value.view) &&
     (value.role === "member" || value.role === "admin") &&
     typeof value.name === "string" &&
-    isNullableString(value.avatar)
+    isNullableString(value.avatar) &&
+    isStringArray(value.permissions)
   );
 }

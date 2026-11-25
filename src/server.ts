@@ -53,6 +53,20 @@ export {
   type AppViewerTokenClaims,
 } from "./protocol";
 
+export {
+  can,
+  definePermissions,
+  PERMISSION_KEY_PATTERN,
+  PLANEWARD_PERMISSIONS_PATH,
+  validatePermissionsResponse,
+  type PlanewardPermissionDefault,
+  type PlanewardPermissionEntry,
+  type PlanewardPermissionKey,
+  type PlanewardPermissionsDefinition,
+  type PlanewardPermissionsResponse,
+  type ValidatePermissionsResult,
+} from "./permissions";
+
 export type * from "./api-types";
 export {
   APP_WEBHOOK_EVENTS,

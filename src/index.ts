@@ -20,6 +20,19 @@ export {
   type AppViewerRole,
   type HostToAppMessage,
 } from "./protocol";
+export {
+  can,
+  definePermissions,
+  PERMISSION_KEY_PATTERN,
+  PLANEWARD_PERMISSIONS_PATH,
+  validatePermissionsResponse,
+  type PlanewardPermissionDefault,
+  type PlanewardPermissionEntry,
+  type PlanewardPermissionKey,
+  type PlanewardPermissionsDefinition,
+  type PlanewardPermissionsResponse,
+  type ValidatePermissionsResult,
+} from "./permissions";
 
 /**
  * Start the iframe handshake with the Planeward host. Call it in the browser

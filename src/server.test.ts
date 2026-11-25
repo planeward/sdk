@@ -12,6 +12,7 @@ import {
 
 import {
   APP_WEBHOOK_EVENTS,
+  can,
   createPlanewardClient,
   parsePlanewardWebhook,
   PlanewardApiError,
@@ -77,6 +78,26 @@ describe("verifyPlanewardToken", () => {
     assert.equal(claims.aud, APP_ID);
     assert.equal(claims.installationId, "inst_1");
     assert.equal(claims.role, "member");
+    assert.deepEqual(claims.permissions, []);
+  });
+
+  it("returns granted permissions, and [] from a host without the claim", async () => {
+    const granted = await verifyPlanewardTokenWithKeys(
+      await sign({ ...viewerClaims, permissions: ["posts.moderate"] }),
+      jwks,
+      { appId: APP_ID, issuer: ISSUER }
+    );
+    assert.deepEqual(granted.permissions, ["posts.moderate"]);
+    assert.equal(can(granted, "posts.moderate"), true);
+
+    await assert.rejects(
+      verifyPlanewardTokenWithKeys(
+        await sign({ ...viewerClaims, permissions: "posts.moderate" }),
+        jwks,
+        { appId: APP_ID, issuer: ISSUER }
+      ),
+      /missing required claims/
+    );
   });
 
   it("rejects a token for another app", async () => {

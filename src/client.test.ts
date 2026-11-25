@@ -82,7 +82,7 @@ describe("createPlanewardApp handshake", () => {
     });
     fake.dispatch(fake.tokenMessage("evil"), HOST, {});
     fake.dispatch(fake.tokenMessage("evil"), "https://evil.example");
-    await assert.rejects(app.ready, /Not running inside a Planeward community/);
+    await assert.rejects(app.ready, /Not running inside Planeward/);
     app.destroy();
   });
 
@@ -117,7 +117,35 @@ describe("createPlanewardApp handshake", () => {
   it("rejects ready after the timeout", async () => {
     const fake = createFakeWindow();
     const app = createPlanewardAppForWindow(fake.win, { timeoutMs: 20 });
-    await assert.rejects(app.ready, /Not running inside a Planeward community/);
+    await assert.rejects(app.ready, /Not running inside Planeward/);
+    app.destroy();
+  });
+});
+
+/** An unsigned JWT with these claims; the client only decodes it. */
+const jwtWith = (claims: Record<string, unknown>) =>
+  [{ alg: "RS256", typ: "JWT" }, claims]
+    .map((part) => Buffer.from(JSON.stringify(part)).toString("base64url"))
+    .concat("sig")
+    .join(".");
+
+describe("can", () => {
+  it("reads the current token's permissions claim", async () => {
+    const fake = createFakeWindow();
+    const app = createPlanewardAppForWindow(fake.win);
+    assert.equal(app.can("posts.moderate"), false);
+    fake.dispatch(
+      fake.tokenMessage(jwtWith({ permissions: ["posts.moderate"] }))
+    );
+    await app.ready;
+    assert.equal(app.can("posts.moderate"), true);
+    assert.equal(app.can("posts.delete"), false);
+
+    // A re-minted token replaces the grants; an opaque token grants nothing.
+    fake.dispatch(fake.tokenMessage(jwtWith({ permissions: [] })));
+    assert.equal(app.can("posts.moderate"), false);
+    fake.dispatch(fake.tokenMessage("opaque"));
+    assert.equal(app.can("posts.moderate"), false);
     app.destroy();
   });
 });

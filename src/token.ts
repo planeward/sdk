@@ -53,7 +53,7 @@ export async function verifyPlanewardTokenWithKeys(
     }
     throw error;
   }
-  const claims = normalizeAudience(payload, options.appId);
+  const claims = normalizeClaims(payload, options.appId);
   if (!isAppViewerTokenClaims(claims)) {
     throw new Error("Planeward token is missing required claims.");
   }
@@ -67,7 +67,12 @@ function unverifiedAudience(token: string): string {
   return aud ?? "(none)";
 }
 
-function normalizeAudience(payload: JWTPayload, appId: string): JWTPayload {
-  // jwtVerify already checked that `aud` contains appId.
-  return Array.isArray(payload.aud) ? { ...payload, aud: appId } : payload;
+function normalizeClaims(payload: JWTPayload, appId: string): JWTPayload {
+  return {
+    ...payload,
+    // jwtVerify already checked that `aud` contains appId.
+    aud: Array.isArray(payload.aud) ? appId : payload.aud,
+    // Hosts from before app permissions don't send the claim: nothing granted.
+    permissions: payload.permissions ?? [],
+  };
 }
