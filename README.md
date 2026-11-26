@@ -19,7 +19,7 @@ const app = createPlanewardApp({
   timeoutMs: 10_000,
 });
 
-const context = await app.ready; // { view, channelId, theme }
+const context = await app.ready; // { view, channelId, theme, appearance? }
 const token = await app.getToken(); // cached, refreshed ~30s before expiry
 const canModerate = app.can("posts.moderate"); // from the token's permissions
 
@@ -35,6 +35,25 @@ app.destroy();
 ```
 
 `ready` rejects with "Not running inside Planeward" when no host answers in time. Importing the module is SSR-safe; call `createPlanewardApp()` in the browser only (for example inside `useEffect`). Do not rely on third-party cookies inside the iframe; send the token to your backend instead.
+
+## Match the host's theme
+
+The host sends its look with the theme: the colours for the current light or dark mode (shadcn token names such as `background`, `primary`, `border`, `chart-1`, `sidebar`), the corner radius and the font. `applyAppearance` sets them as CSS variables on `<html>` (`--primary`, `--radius`, `--font-sans`, …) and loads the font's Google Fonts stylesheet, so an app built on shadcn tokens follows the community it runs in.
+
+```ts
+import { applyAppearance, createPlanewardApp } from "@planeward/sdk";
+
+const app = createPlanewardApp();
+await app.ready;
+applyAppearance(app.context?.appearance);
+
+app.onThemeChange((theme, appearance) => {
+  document.documentElement.dataset.theme = theme;
+  applyAppearance(appearance);
+});
+```
+
+`appearance` is `undefined` from hosts that don't send one; `applyAppearance(undefined)` clears what it set, so your own CSS defaults apply. Each call replaces the previous one, and it returns a cleanup that removes the variables and links it added. The SDK keeps only known token names and plain CSS values (no `url(`, `;`, braces or angle brackets), and font stylesheets from `https://fonts.googleapis.com/` only.
 
 ## Server: verify the viewer
 

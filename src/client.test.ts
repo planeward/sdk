@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createPlanewardAppForWindow, type PlanewardAppWindow } from "./client";
-import { APP_MESSAGE, type AppContext } from "./protocol";
+import {
+  applyAppearance,
+  createPlanewardAppForWindow,
+  type PlanewardAppWindow,
+} from "./client";
+import { APP_MESSAGE, type AppAppearance, type AppContext } from "./protocol";
 
 const HOST = "https://acme.planeward.site";
 const context: AppContext = {
@@ -217,5 +221,176 @@ describe("getToken", () => {
     await assert.rejects(pending, /destroyed/);
     assert.equal(fake.listeners.size, 0);
     await assert.rejects(app.getToken(), /destroyed/);
+  });
+});
+
+describe("onThemeChange appearance", () => {
+  const A: AppAppearance = { colors: { primary: "red" }, radius: "0.5rem" };
+  const B: AppAppearance = { colors: { primary: "blue" } };
+
+  it("emits when the theme or the appearance changes", async () => {
+    const fake = createFakeWindow();
+    const app = createPlanewardAppForWindow(fake.win);
+    fake.dispatch(
+      fake.tokenMessage("t1", null, undefined, { ...context, appearance: A })
+    );
+    assert.deepEqual((await app.ready).appearance, A);
+
+    const emitted: unknown[] = [];
+    app.onThemeChange((theme, appearance) => emitted.push([theme, appearance]));
+    const dark = { ...context, theme: "dark" as const };
+    const steps: { message: unknown; emits: unknown[] }[] = [
+      {
+        message: { type: APP_MESSAGE.theme, theme: "dark", appearance: A },
+        emits: [["dark", A]],
+      },
+      // Same theme and appearance: nothing to emit.
+      {
+        message: { type: APP_MESSAGE.theme, theme: "dark", appearance: A },
+        emits: [],
+      },
+      // Appearance change alone emits.
+      {
+        message: { type: APP_MESSAGE.theme, theme: "dark", appearance: B },
+        emits: [["dark", B]],
+      },
+      {
+        message: fake.tokenMessage("t2", null, undefined, {
+          ...dark,
+          appearance: B,
+        }),
+        emits: [],
+      },
+      // A host that stops sending an appearance clears it.
+      {
+        message: fake.tokenMessage("t3", null, undefined, dark),
+        emits: [["dark", undefined]],
+      },
+      { message: { type: APP_MESSAGE.theme, theme: "dark" }, emits: [] },
+    ];
+    for (const { message, emits } of steps) {
+      emitted.length = 0;
+      fake.dispatch(message);
+      assert.deepEqual(emitted, emits);
+    }
+    assert.deepEqual(app.context, dark);
+    app.destroy();
+  });
+});
+
+type FakeLink = {
+  attributes: Map<string, string>;
+  setAttribute: (name: string, value: string) => void;
+  remove: () => void;
+};
+
+function createFakeRoot() {
+  const properties = new Map<string, string>();
+  const head: FakeLink[] = [];
+  const ownerDocument = {
+    head: { appendChild: (link: FakeLink) => head.push(link) },
+    createElement(tag: string): FakeLink {
+      assert.equal(tag, "link");
+      const link: FakeLink = {
+        attributes: new Map(),
+        setAttribute: (name, value) => link.attributes.set(name, value),
+        remove: () => {
+          const index = head.indexOf(link);
+          if (index >= 0) head.splice(index, 1);
+        },
+      };
+      return link;
+    },
+  };
+  const root = {
+    style: {
+      setProperty: (name: string, value: string) => properties.set(name, value),
+      removeProperty: (name: string) => properties.delete(name),
+    },
+    ownerDocument,
+  } as unknown as HTMLElement;
+  const hrefs = () => head.map((link) => link.attributes.get("href"));
+  return { root, properties, head, hrefs };
+}
+
+const FONT_A = "https://fonts.googleapis.com/css2?family=Inter";
+const FONT_B = "https://fonts.googleapis.com/css2?family=Geist";
+
+describe("applyAppearance", () => {
+  it("sets variables and font links, and cleans up", () => {
+    const fake = createFakeRoot();
+    const cleanup = applyAppearance(
+      {
+        colors: { primary: "red", background: "#fff" },
+        radius: "0.5rem",
+        font: { family: "Inter", stylesheets: [FONT_A, FONT_A, FONT_B] },
+      },
+      fake.root
+    );
+    assert.deepEqual(Object.fromEntries(fake.properties), {
+      "--background": "#fff",
+      "--primary": "red",
+      "--radius": "0.5rem",
+      "--font-sans": "Inter",
+    });
+    assert.deepEqual(fake.hrefs(), [FONT_A, FONT_B]);
+    assert.deepEqual(Object.fromEntries(fake.head[0]!.attributes), {
+      rel: "stylesheet",
+      href: FONT_A,
+      "data-planeward-font": "",
+    });
+
+    cleanup();
+    assert.equal(fake.properties.size, 0);
+    assert.equal(fake.head.length, 0);
+  });
+
+  it("replaces the previous appearance and keeps shared links", () => {
+    const fake = createFakeRoot();
+    const first = applyAppearance(
+      {
+        colors: { primary: "red" },
+        radius: "0.5rem",
+        font: { family: "Inter", stylesheets: [FONT_A, FONT_B] },
+      },
+      fake.root
+    );
+    const linkA = fake.head[0];
+    const second = applyAppearance(
+      {
+        colors: { background: "#000" },
+        font: { family: "Geist", stylesheets: [FONT_A] },
+      },
+      fake.root
+    );
+    assert.deepEqual(Object.fromEntries(fake.properties), {
+      "--background": "#000",
+      "--font-sans": "Geist",
+    });
+    assert.deepEqual(fake.hrefs(), [FONT_A]);
+    assert.equal(fake.head[0], linkA);
+
+    // A replaced call's cleanup is a no-op.
+    first();
+    assert.equal(fake.properties.size, 2);
+    applyAppearance(null, fake.root);
+    assert.equal(fake.properties.size, 0);
+    assert.equal(fake.head.length, 0);
+    second();
+  });
+
+  it("sanitises a caller-supplied appearance", () => {
+    const fake = createFakeRoot();
+    applyAppearance(
+      {
+        colors: { primary: "red;color:blue", "--x": "y" } as never,
+        font: { family: "Inter", stylesheets: ["https://evil.example/a.css"] },
+      },
+      fake.root
+    );
+    assert.deepEqual(Object.fromEntries(fake.properties), {
+      "--font-sans": "Inter",
+    });
+    assert.equal(fake.head.length, 0);
   });
 });

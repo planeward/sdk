@@ -1,9 +1,12 @@
 import { decodeJwt } from "jose";
 
 import {
+  APP_APPEARANCE_COLORS,
   APP_MESSAGE,
   APP_SDK_PROTOCOL_VERSION,
+  parseAppAppearance,
   parseHostMessage,
+  type AppAppearance,
   type AppContext,
   type AppTheme,
   type AppToHostMessage,
@@ -34,8 +37,14 @@ export type PlanewardApp = {
    * verified claims with `can(viewer, key)` from `@planeward/sdk/server`.
    */
   can: (key: string) => boolean;
-  /** Called when the host theme changes. Returns an unsubscribe function. */
-  onThemeChange: (callback: (theme: AppTheme) => void) => () => void;
+  /**
+   * Called when the host's theme or appearance changes, with the new
+   * appearance (`undefined` from hosts that don't send one). Pass it to
+   * `applyAppearance`. Returns an unsubscribe function.
+   */
+  onThemeChange: (
+    callback: (theme: AppTheme, appearance: AppAppearance | undefined) => void
+  ) => () => void;
   /** Removes listeners and rejects pending requests. */
   destroy: () => void;
 };
@@ -85,6 +94,79 @@ function randomRequestId(): string {
   );
 }
 
+/** Parsed appearances have a fixed key order, so this compares by value. */
+const appearanceKey = (appearance: AppAppearance | undefined) =>
+  appearance ? JSON.stringify(appearance) : "";
+
+type AppliedAppearance = {
+  properties: ReadonlySet<string>;
+  links: ReadonlyMap<string, HTMLLinkElement>;
+};
+
+const appliedAppearances = new WeakMap<HTMLElement, AppliedAppearance>();
+
+/**
+ * Apply the host's appearance to `root` as CSS variables: `--<colour>` (e.g.
+ * `--primary`), `--radius` and `--font-sans`, plus one
+ * `<link rel="stylesheet" data-planeward-font>` per font stylesheet. Values
+ * are sanitised again and set with `style.setProperty`. Calling it again
+ * replaces the previous values; `null` or `undefined` clears them. Returns a
+ * cleanup that removes what this call applied (a no-op once a later call has
+ * replaced it).
+ */
+export function applyAppearance(
+  appearance: AppAppearance | null | undefined,
+  root: HTMLElement = document.documentElement
+): () => void {
+  const previous = appliedAppearances.get(root);
+  // Callers may pass their own object, so sanitise it like a host message.
+  const parsed = parseAppAppearance(appearance);
+
+  const properties = new Map<string, string>();
+  if (parsed) {
+    for (const key of APP_APPEARANCE_COLORS) {
+      const value = parsed.colors[key];
+      if (value) properties.set(`--${key}`, value);
+    }
+    if (parsed.radius) properties.set("--radius", parsed.radius);
+    if (parsed.font) properties.set("--font-sans", parsed.font.family);
+  }
+  for (const name of previous?.properties ?? []) {
+    if (!properties.has(name)) root.style.removeProperty(name);
+  }
+  for (const [name, value] of properties) root.style.setProperty(name, value);
+
+  const doc = root.ownerDocument;
+  const links = new Map<string, HTMLLinkElement>();
+  for (const href of parsed?.font?.stylesheets ?? []) {
+    if (links.has(href)) continue;
+    let link = previous?.links.get(href);
+    if (!link) {
+      link = doc.createElement("link");
+      link.setAttribute("rel", "stylesheet");
+      link.setAttribute("href", href);
+      link.setAttribute("data-planeward-font", "");
+      doc.head.appendChild(link);
+    }
+    links.set(href, link);
+  }
+  for (const [href, link] of previous?.links ?? []) {
+    if (!links.has(href)) link.remove();
+  }
+
+  const applied: AppliedAppearance = {
+    properties: new Set(properties.keys()),
+    links,
+  };
+  appliedAppearances.set(root, applied);
+  return () => {
+    if (appliedAppearances.get(root) !== applied) return;
+    appliedAppearances.delete(root);
+    for (const name of applied.properties) root.style.removeProperty(name);
+    for (const link of applied.links.values()) link.remove();
+  };
+}
+
 type PendingRequest = {
   requestId: string;
   promise: Promise<string>;
@@ -111,7 +193,9 @@ export function createPlanewardAppForWindow(
   } | null = null;
   let pending: PendingRequest | null = null;
   let destroyed = false;
-  const themeListeners = new Set<(theme: AppTheme) => void>();
+  const themeListeners = new Set<
+    (theme: AppTheme, appearance: AppAppearance | undefined) => void
+  >();
 
   let resolveReady!: (context: AppContext) => void;
   let rejectReady!: (error: Error) => void;
@@ -154,20 +238,29 @@ export function createPlanewardAppForWindow(
       expiresAt: message.expiresAt,
       permissions: tokenPermissions(message.token),
     };
-    const previousTheme = context?.theme;
+    const previous = context;
     context = { ...message.context };
     if (pending && message.requestId === pending.requestId) {
       settlePending(message.token);
     }
     if (!readySettled) {
       settleReady(context);
-    } else if (previousTheme && previousTheme !== context.theme) {
-      emitTheme(context.theme);
+    } else if (previous) {
+      emitIfThemeChanged(previous);
     }
   }
 
-  function emitTheme(theme: AppTheme) {
-    for (const listener of themeListeners) listener(theme);
+  function emitIfThemeChanged(previous: AppContext) {
+    if (!context) return;
+    if (
+      previous.theme === context.theme &&
+      appearanceKey(previous.appearance) === appearanceKey(context.appearance)
+    ) {
+      return;
+    }
+    for (const listener of themeListeners) {
+      listener(context.theme, context.appearance);
+    }
   }
 
   function onMessage(event: MessageEvent) {
@@ -189,9 +282,13 @@ export function createPlanewardAppForWindow(
         acceptToken(message);
         break;
       case APP_MESSAGE.theme:
-        if (context && context.theme !== message.theme) {
-          context = { ...context, theme: message.theme };
-          emitTheme(message.theme);
+        if (context) {
+          const previous = context;
+          const { appearance: _previousAppearance, ...rest } = context;
+          context = message.appearance
+            ? { ...rest, theme: message.theme, appearance: message.appearance }
+            : { ...rest, theme: message.theme };
+          emitIfThemeChanged(previous);
         }
         break;
       case APP_MESSAGE.error:

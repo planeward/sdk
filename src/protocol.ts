@@ -25,7 +25,7 @@ export const APP_MESSAGE = {
   tokenRequest: "planeward:app:token-request",
   /** host → app `{ type, requestId, token, expiresAt, context }` */
   token: "planeward:app:token",
-  /** host → app `{ type, theme }` */
+  /** host → app `{ type, theme, appearance? }` */
   theme: "planeward:app:theme",
   /** host → app `{ type, requestId, message }` */
   error: "planeward:app:error",
@@ -35,10 +35,58 @@ export type AppView = "experience" | "dashboard";
 export type AppViewerRole = "member" | "admin";
 export type AppTheme = "light" | "dark";
 
+/** Theme tokens the host may send: shadcn CSS variable names without `--`. */
+export const APP_APPEARANCE_COLORS = [
+  "background",
+  "foreground",
+  "card",
+  "card-foreground",
+  "popover",
+  "popover-foreground",
+  "primary",
+  "primary-foreground",
+  "secondary",
+  "secondary-foreground",
+  "muted",
+  "muted-foreground",
+  "accent",
+  "accent-foreground",
+  "destructive",
+  "destructive-foreground",
+  "border",
+  "input",
+  "ring",
+  "chart-1",
+  "chart-2",
+  "chart-3",
+  "chart-4",
+  "chart-5",
+  "sidebar",
+  "sidebar-foreground",
+  "sidebar-primary",
+  "sidebar-primary-foreground",
+  "sidebar-accent",
+  "sidebar-accent-foreground",
+  "sidebar-border",
+  "sidebar-ring",
+] as const;
+
+export type AppAppearanceColor = (typeof APP_APPEARANCE_COLORS)[number];
+
+/** The host's look for the current mode: colours, corner radius and font. */
+export type AppAppearance = {
+  colors: Partial<Record<AppAppearanceColor, string>>;
+  radius?: string;
+  /** `stylesheets` are `https://fonts.googleapis.com/` URLs only. */
+  font?: { family: string; stylesheets: string[] };
+};
+
 export type AppContext = {
   view: AppView;
   channelId: string | null;
   theme: AppTheme;
+  /** Sent by hosts that share their look; absent from older hosts. */
+  appearance?: AppAppearance;
 };
 
 export type AppReadyMessage = {
@@ -63,6 +111,8 @@ export type AppTokenMessage = {
 export type AppThemeMessage = {
   type: typeof APP_MESSAGE.theme;
   theme: AppTheme;
+  /** The new mode's appearance; absent from older hosts. */
+  appearance?: AppAppearance;
 };
 
 export type AppErrorMessage = {
@@ -125,21 +175,107 @@ export function isAppContext(value: unknown): value is AppContext {
   );
 }
 
+const MAX_CSS_VALUE_LENGTH = 64;
+const MAX_FONT_FAMILY_LENGTH = 200;
+const MAX_FONT_STYLESHEET_LENGTH = 500;
+const MAX_FONT_STYLESHEETS = 4;
+const FONT_STYLESHEET_PREFIX = "https://fonts.googleapis.com/";
+/** Characters and functions that could break out of, or load from, a CSS value. */
+const UNSAFE_CSS_VALUE = /[;{}<>\\]|url\(|expression\(/i;
+
+const safeCssValue = (value: unknown, maxLength: number): string | null =>
+  typeof value === "string" &&
+  value.trim().length > 0 &&
+  value.length <= maxLength &&
+  !UNSAFE_CSS_VALUE.test(value)
+    ? value
+    : null;
+
+const isFontStylesheet = (value: unknown): value is string =>
+  typeof value === "string" &&
+  value.length <= MAX_FONT_STYLESHEET_LENGTH &&
+  value.startsWith(FONT_STYLESHEET_PREFIX);
+
+/**
+ * Sanitise an appearance from the host: known colour keys only, CSS values
+ * without `;{}<>\`, `url(` or `expression(`, Google Fonts stylesheets only.
+ * Returns `undefined` when nothing usable is left.
+ */
+export function parseAppAppearance(value: unknown): AppAppearance | undefined {
+  if (!isRecord(value)) return undefined;
+
+  const colors: Partial<Record<AppAppearanceColor, string>> = {};
+  if (isRecord(value.colors)) {
+    for (const key of APP_APPEARANCE_COLORS) {
+      const color = safeCssValue(value.colors[key], MAX_CSS_VALUE_LENGTH);
+      if (color !== null) colors[key] = color;
+    }
+  }
+  const appearance: AppAppearance = { colors };
+
+  const radius = safeCssValue(value.radius, MAX_CSS_VALUE_LENGTH);
+  if (radius !== null) appearance.radius = radius;
+
+  if (isRecord(value.font)) {
+    const family = safeCssValue(value.font.family, MAX_FONT_FAMILY_LENGTH);
+    if (family !== null) {
+      const stylesheets = Array.isArray(value.font.stylesheets)
+        ? value.font.stylesheets
+            .filter(isFontStylesheet)
+            .slice(0, MAX_FONT_STYLESHEETS)
+        : [];
+      appearance.font = { family, stylesheets };
+    }
+  }
+
+  return Object.keys(colors).length > 0 || appearance.radius || appearance.font
+    ? appearance
+    : undefined;
+}
+
+/** Copies `appearance` in only when it parses, so the key is absent otherwise. */
+function withAppearance<T extends object>(
+  base: T,
+  raw: unknown
+): T & { appearance?: AppAppearance } {
+  const appearance = parseAppAppearance(raw);
+  return appearance ? { ...base, appearance } : base;
+}
+
 /** Narrow an unknown `postMessage` payload to a host → app message. */
 export function parseHostMessage(value: unknown): HostToAppMessage | null {
   if (!isRecord(value)) return null;
   switch (value.type) {
-    case APP_MESSAGE.token:
-      return isNullableString(value.requestId) &&
-        typeof value.token === "string" &&
-        value.token.length > 0 &&
-        typeof value.expiresAt === "number" &&
-        Number.isFinite(value.expiresAt) &&
-        isAppContext(value.context)
-        ? (value as AppTokenMessage)
-        : null;
+    case APP_MESSAGE.token: {
+      const ctx = value.context;
+      if (
+        !isNullableString(value.requestId) ||
+        typeof value.token !== "string" ||
+        value.token.length === 0 ||
+        typeof value.expiresAt !== "number" ||
+        !Number.isFinite(value.expiresAt) ||
+        !isAppContext(ctx)
+      ) {
+        return null;
+      }
+      return {
+        type: APP_MESSAGE.token,
+        requestId: value.requestId,
+        token: value.token,
+        expiresAt: value.expiresAt,
+        context: withAppearance(
+          { view: ctx.view, channelId: ctx.channelId, theme: ctx.theme },
+          ctx.appearance
+        ),
+      };
+    }
     case APP_MESSAGE.theme:
-      return isTheme(value.theme) ? (value as AppThemeMessage) : null;
+      return isTheme(value.theme)
+        ? withAppearance(
+            { type: APP_MESSAGE.theme, theme: value.theme },
+            value.appearance
+          )
+        : null;
     case APP_MESSAGE.error:
       return isNullableString(value.requestId) &&
         typeof value.message === "string"

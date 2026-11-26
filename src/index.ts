@@ -4,10 +4,15 @@ import {
   type PlanewardApp,
 } from "./client";
 
+export { applyAppearance } from "./client";
 export type { CreatePlanewardAppOptions, PlanewardApp } from "./client";
 export {
+  APP_APPEARANCE_COLORS,
   APP_MESSAGE,
   APP_SDK_PROTOCOL_VERSION,
+  parseAppAppearance,
+  type AppAppearance,
+  type AppAppearanceColor,
   type AppContext,
   type AppErrorMessage,
   type AppReadyMessage,
