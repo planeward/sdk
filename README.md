@@ -243,12 +243,14 @@ The envelope is `{ event, data, timestamp, installationId, workspaceId }`, a uni
 
 | Events                                                                                                             | Scope                                                     |
 | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- |
-| `app.installed`, `app.uninstalled`                                                                                 | none                                                      |
+| `app.installed`, `app.uninstalled`, `app.channel_added`, `app.channel_removed`                                     | none                                                      |
 | `community.membership.*`, `community.badge.awarded`, `community.badge.revoked`                                     | `COMMUNITY_MEMBERS_READ`                                  |
 | `community.message.created`, `community.message.deleted`, `community.reaction.added`, `community.reaction.removed` | `COMMUNITY_MESSAGES_READ` (channels `@everyone` can view) |
 | `community.module.completed`, `community.course.completed` (once per member and course)                            | `COURSES_READ`                                            |
 | `event.registered`, `event.registration_cancelled`, `event.attendance_classified`                                  | `EVENTS_READ` (events shown in community)                 |
 | `form.submitted`                                                                                                   | `FORMS_SUBMIT` (forms shown in community)                 |
+
+`app.channel_added` and `app.channel_removed` (`AppChannelAddedData`, `AppChannelRemovedData`) tell your backend which channels your app sits in: `{ installationId, workspaceId, communityId, channelId, channelName, categoryId }` plus `addedAt` or `removedAt`. `channelId` is the viewer token's `channelId`. A channel is removed when staff delete it or the app is uninstalled; uninstalling sends one `app.channel_removed` per channel before `app.uninstalled`, but deliveries may arrive in any order.
 
 Events added to Planeward after your SDK version still parse; ignore an `event` you don't handle. `community.course.completed` goes out at most once per member and course: uncompleting and completing the last module again doesn't repeat it.
 

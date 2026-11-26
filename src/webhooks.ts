@@ -3,8 +3,10 @@
  * what apps receive in the Planeward repo: `event.*` and `form.submitted` use
  * the app schemas in `apps/web/src/config/webhook/webhook-event-payloads.ts`
  * (`appEventRegistrationSchema`, `appFormSubmittedSchema`), every other event
- * the workspace schema there, and `app.*` events come from
- * `apps/web/src/server/apps/installations.ts`. Field names match exactly.
+ * the workspace schema there, and `app.*` events from
+ * `apps/web/src/config/app/community-apps.ts` (`installations.ts` and
+ * `channel-events.ts` in `apps/web/src/server/apps/` send them). Field names
+ * match exactly.
  * They are not part of the OpenAPI spec.
  */
 import type { AttendanceStatus } from "./api-types";
@@ -24,6 +26,33 @@ export type AppUninstalledData = {
   workspaceId: string;
   /** ISO 8601. */
   uninstalledAt: string;
+};
+
+/** Fields shared by `app.channel_added` and `app.channel_removed`. */
+export type AppChannelData = {
+  installationId: string;
+  workspaceId: string;
+  communityId: string;
+  /** The app's channel; the same id as the viewer token's `channelId`. */
+  channelId: string;
+  channelName: string;
+  /** Null for a channel outside any category. */
+  categoryId: string | null;
+};
+
+/** `app.channel_added`: staff added the app to the community as a channel. */
+export type AppChannelAddedData = AppChannelData & {
+  /** ISO 8601. */
+  addedAt: string;
+};
+
+/**
+ * `app.channel_removed`: the app's channel is gone, deleted by staff or by
+ * uninstalling (one per channel, sent before `app.uninstalled`).
+ */
+export type AppChannelRemovedData = AppChannelData & {
+  /** ISO 8601. */
+  removedAt: string;
 };
 
 /** `community.membership.*`. Needs `COMMUNITY_MEMBERS_READ`. */
@@ -150,6 +179,8 @@ export type FormSubmittedData = {
 export type AppWebhookEventDataMap = {
   "app.installed": AppInstalledData;
   "app.uninstalled": AppUninstalledData;
+  "app.channel_added": AppChannelAddedData;
+  "app.channel_removed": AppChannelRemovedData;
   "community.membership.granted": CommunityMembershipData;
   "community.membership.complimentary": CommunityMembershipData;
   "community.membership.suspended": CommunityMembershipData;
@@ -174,6 +205,8 @@ export type AppWebhookEventName = keyof AppWebhookEventDataMap;
 export const APP_WEBHOOK_EVENTS = [
   "app.installed",
   "app.uninstalled",
+  "app.channel_added",
+  "app.channel_removed",
   "community.membership.granted",
   "community.membership.complimentary",
   "community.membership.suspended",

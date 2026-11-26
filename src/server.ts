@@ -70,6 +70,9 @@ export {
 export type * from "./api-types";
 export {
   APP_WEBHOOK_EVENTS,
+  type AppChannelAddedData,
+  type AppChannelData,
+  type AppChannelRemovedData,
   type AppInstalledData,
   type AppUninstalledData,
   type AppWebhookEnvelope,

@@ -231,6 +231,12 @@ function describeWebhook(webhook: AppWebhookEnvelope): string {
       return `installed ${webhook.data.grantedPermissions.join(",")}`;
     case "app.uninstalled":
       return `uninstalled ${webhook.data.uninstalledAt}`;
+    case "app.channel_added":
+      return `channel added ${webhook.data.channelId} ${webhook.data.addedAt}`;
+    case "app.channel_removed":
+      // @ts-expect-error `addedAt` is only on `app.channel_added`.
+      void webhook.data.addedAt;
+      return `channel removed ${webhook.data.channelId} ${webhook.data.removedAt}`;
     case "community.membership.granted":
     case "community.membership.complimentary":
     case "community.membership.suspended":
@@ -301,6 +307,34 @@ describe("parsePlanewardWebhook union", () => {
       })
     );
     assert.equal(describeWebhook(badge), "badge first-post cm_1");
+  });
+
+  it("narrows the app channel events", () => {
+    const channel = {
+      installationId: "inst_1",
+      workspaceId: "ws_1",
+      communityId: "c1",
+      channelId: "ch1",
+      channelName: "Polls",
+      categoryId: null,
+    };
+    const cases = [
+      [
+        "app.channel_added",
+        { ...channel, addedAt: "2026-11-26T00:00:00.000Z" },
+        "channel added ch1 2026-11-26T00:00:00.000Z",
+      ],
+      [
+        "app.channel_removed",
+        { ...channel, removedAt: "2026-11-26T00:00:00.000Z" },
+        "channel removed ch1 2026-11-26T00:00:00.000Z",
+      ],
+    ] as const;
+
+    for (const [event, data, expected] of cases) {
+      const webhook = parsePlanewardWebhook(envelope(event, data));
+      assert.equal(describeWebhook(webhook), expected, event);
+    }
   });
 
   it("lets a single-event envelope type be named", () => {
