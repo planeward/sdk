@@ -20,7 +20,12 @@ export type CreatePlanewardAppOptions = {
    * from `window.parent` and ignores every other origin afterwards.
    */
   allowedHostOrigins?: string[];
-  /** Handshake and token request timeout in milliseconds. Defaults to 10000. */
+  /**
+   * How long to wait for the host's first token, and for each token request
+   * attempt, in milliseconds. Defaults to 20000. The `ready` hello is resent
+   * every second until the host answers, and a token request that times out
+   * or errors is retried twice before `getToken` rejects.
+   */
   timeoutMs?: number;
 };
 
@@ -62,8 +67,13 @@ export type PlanewardAppWindow = {
   ) => void;
 };
 
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 20_000;
 const REFRESH_BEFORE_EXPIRY_MS = 30_000;
+/** The hello is resent this often until the host sends its first token. */
+const HELLO_INTERVAL_MS = 1_000;
+/** Attempts per token request (the first plus two retries). */
+const TOKEN_REQUEST_ATTEMPTS = 3;
+const TOKEN_RETRY_DELAY_MS = 1_000;
 
 const NOT_IN_HOST_ERROR =
   "Not running inside Planeward: no response from the host.";
@@ -168,11 +178,14 @@ export function applyAppearance(
 }
 
 type PendingRequest = {
+  /** Id of the latest attempt; only its answer settles the request. */
   requestId: string;
+  attempts: number;
   promise: Promise<string>;
   resolve: (token: string) => void;
   reject: (error: Error) => void;
-  timer: ReturnType<typeof setTimeout>;
+  /** The attempt's timeout, or the delay before the next attempt. */
+  timer: ReturnType<typeof setTimeout> | undefined;
 };
 
 export function createPlanewardAppForWindow(
@@ -210,11 +223,23 @@ export function createPlanewardAppForWindow(
   const readyTimer = setTimeout(() => {
     settleReady(new Error(NOT_IN_HOST_ERROR));
   }, timeoutMs);
+  // The host may not be listening yet, or its first token fetch may fail, so
+  // keep saying hello until a token arrives.
+  const helloTimer = setInterval(sayHello, HELLO_INTERVAL_MS);
+
+  function sayHello() {
+    // The hello carries no secret, so "*" is acceptable when no origin is configured.
+    post(
+      { type: APP_MESSAGE.ready, version: APP_SDK_PROTOCOL_VERSION },
+      options.allowedHostOrigins?.[0] ?? "*"
+    );
+  }
 
   function settleReady(result: AppContext | Error) {
     if (readySettled) return;
     readySettled = true;
     clearTimeout(readyTimer);
+    clearInterval(helloTimer);
     if (result instanceof Error) rejectReady(result);
     else resolveReady(result);
   }
@@ -293,10 +318,41 @@ export function createPlanewardAppForWindow(
         break;
       case APP_MESSAGE.error:
         if (pending && message.requestId === pending.requestId) {
-          settlePending(new Error(message.message));
+          failAttempt(pending, new Error(message.message));
         }
         break;
     }
+  }
+
+  function sendAttempt(request: PendingRequest, origin: string) {
+    request.requestId = randomRequestId();
+    request.timer = setTimeout(() => {
+      failAttempt(
+        request,
+        new Error(
+          `Planeward host did not return a token within ${timeoutMs}ms.`
+        )
+      );
+    }, timeoutMs);
+    post(
+      { type: APP_MESSAGE.tokenRequest, requestId: request.requestId },
+      origin
+    );
+  }
+
+  /** Retries after a short delay; rejects once every attempt has failed. */
+  function failAttempt(request: PendingRequest, error: Error) {
+    if (pending !== request) return;
+    clearTimeout(request.timer);
+    request.attempts += 1;
+    if (request.attempts >= TOKEN_REQUEST_ATTEMPTS || pinnedOrigin === null) {
+      settlePending(error);
+      return;
+    }
+    const origin = pinnedOrigin;
+    request.timer = setTimeout(() => {
+      if (pending === request) sendAttempt(request, origin);
+    }, TOKEN_RETRY_DELAY_MS);
   }
 
   function requestToken(): Promise<string> {
@@ -304,24 +360,22 @@ export function createPlanewardAppForWindow(
     if (pinnedOrigin === null) {
       return Promise.reject(new Error(NOT_IN_HOST_ERROR));
     }
-    const requestId = randomRequestId();
     let resolve!: (token: string) => void;
     let reject!: (error: Error) => void;
     const promise = new Promise<string>((res, rej) => {
       resolve = res;
       reject = rej;
     });
-    const timer = setTimeout(() => {
-      if (pending?.requestId === requestId) {
-        settlePending(
-          new Error(
-            `Planeward host did not return a token within ${timeoutMs}ms.`
-          )
-        );
-      }
-    }, timeoutMs);
-    pending = { requestId, promise, resolve, reject, timer };
-    post({ type: APP_MESSAGE.tokenRequest, requestId }, pinnedOrigin);
+    const request: PendingRequest = {
+      requestId: "",
+      attempts: 0,
+      promise,
+      resolve,
+      reject,
+      timer: undefined,
+    };
+    pending = request;
+    sendAttempt(request, pinnedOrigin);
     return promise;
   }
 
@@ -345,11 +399,7 @@ export function createPlanewardAppForWindow(
   }
 
   win.addEventListener("message", onMessage);
-  // The hello carries no secret, so "*" is acceptable when no origin is configured.
-  post(
-    { type: APP_MESSAGE.ready, version: APP_SDK_PROTOCOL_VERSION },
-    options.allowedHostOrigins?.[0] ?? "*"
-  );
+  sayHello();
 
   return {
     ready,

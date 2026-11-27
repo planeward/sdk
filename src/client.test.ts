@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 import {
   applyAppearance,
@@ -118,6 +118,25 @@ describe("createPlanewardApp handshake", () => {
     app.destroy();
   });
 
+  it("resends the hello until the first token arrives", async () => {
+    mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+    try {
+      const fake = createFakeWindow();
+      const app = createPlanewardAppForWindow(fake.win);
+      const hellos = () =>
+        fake.posted.filter((p) => p.message.type === APP_MESSAGE.ready).length;
+      mock.timers.tick(2_000);
+      assert.equal(hellos(), 3);
+      fake.dispatch(fake.tokenMessage("t1"));
+      await app.ready;
+      mock.timers.tick(5_000);
+      assert.equal(hellos(), 3);
+      app.destroy();
+    } finally {
+      mock.timers.reset();
+    }
+  });
+
   it("rejects ready after the timeout", async () => {
     const fake = createFakeWindow();
     const app = createPlanewardAppForWindow(fake.win, { timeoutMs: 20 });
@@ -181,33 +200,61 @@ describe("getToken", () => {
     app.destroy();
   });
 
-  it("rejects on a matching host error", async () => {
-    const fake = createFakeWindow();
-    const app = createPlanewardAppForWindow(fake.win);
-    fake.dispatch(fake.tokenMessage("old", null, Date.now()));
-    await app.ready;
+  describe("retries", () => {
+    beforeEach(() => mock.timers.enable({ apis: ["setTimeout"] }));
+    afterEach(() => mock.timers.reset());
 
-    const pending = app.getToken();
-    await flush();
-    const request = fake.posted.find(
-      (p) => p.message.type === APP_MESSAGE.tokenRequest
-    );
-    fake.dispatch({
-      type: APP_MESSAGE.error,
-      requestId: request?.message.requestId,
-      message: "Session expired",
+    async function setup(timeoutMs?: number) {
+      const fake = createFakeWindow();
+      const app = createPlanewardAppForWindow(fake.win, { timeoutMs });
+      fake.dispatch(fake.tokenMessage("old", null, Date.now()));
+      await app.ready;
+      const pending = app.getToken();
+      await flush();
+      const lastRequestId = () =>
+        fake.posted.findLast((p) => p.message.type === APP_MESSAGE.tokenRequest)
+          ?.message.requestId;
+      const hostError = () =>
+        fake.dispatch({
+          type: APP_MESSAGE.error,
+          requestId: lastRequestId(),
+          message: "Session expired",
+        });
+      return { fake, app, pending, lastRequestId, hostError };
+    }
+
+    it("retries a host error and resolves with the next answer", async () => {
+      const { fake, app, pending, lastRequestId, hostError } = await setup();
+      const firstId = lastRequestId();
+      hostError();
+      mock.timers.tick(1_000);
+      assert.notEqual(lastRequestId(), firstId);
+      fake.dispatch(fake.tokenMessage("fresh", lastRequestId() as string));
+      assert.equal(await pending, "fresh");
+      app.destroy();
     });
-    await assert.rejects(pending, /Session expired/);
-    app.destroy();
-  });
 
-  it("rejects when the host does not answer in time", async () => {
-    const fake = createFakeWindow();
-    const app = createPlanewardAppForWindow(fake.win, { timeoutMs: 30 });
-    fake.dispatch(fake.tokenMessage("old", null, Date.now()));
-    await app.ready;
-    await assert.rejects(app.getToken(), /did not return a token/);
-    app.destroy();
+    it("rejects after three host errors", async () => {
+      const { app, pending, hostError } = await setup();
+      hostError();
+      mock.timers.tick(1_000);
+      hostError();
+      mock.timers.tick(1_000);
+      hostError();
+      await assert.rejects(pending, /Session expired/);
+      app.destroy();
+    });
+
+    it("rejects after three attempts time out", async () => {
+      const { fake, app, pending } = await setup(30);
+      for (const ms of [30, 1_000, 30, 1_000, 30]) mock.timers.tick(ms);
+      await assert.rejects(pending, /did not return a token/);
+      const requests = fake.posted.filter(
+        (p) => p.message.type === APP_MESSAGE.tokenRequest
+      );
+      assert.equal(requests.length, 3);
+      app.destroy();
+    });
   });
 
   it("destroy removes the listener and rejects pending requests", async () => {

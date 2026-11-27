@@ -16,7 +16,9 @@ import { createPlanewardApp } from "@planeward/sdk";
 const app = createPlanewardApp({
   // Optional. Without it, the SDK pins to the first host origin that sends a token.
   allowedHostOrigins: ["https://acme.planeward.site"],
-  timeoutMs: 10_000,
+  // Optional. Wait for the host's first token, and per token request attempt.
+  // The SDK keeps saying hello and retries a failed token request twice.
+  timeoutMs: 20_000,
 });
 
 const context = await app.ready; // { view, channelId, theme, appearance? }
